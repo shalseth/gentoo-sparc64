@@ -1,41 +1,85 @@
 # Portage bashrc for linux/sparc64.
 #
-# golang.org/x/sys carries the generated syscall, errno, sysnum and type
-# files for linux/sparc64, but not the gc syscall trampolines
-# (unix/asm_linux_sparc64.s) nor cpu/cpu_sparc64.go. Since
-# syscall_unix_gc.go declares those functions for every gc unix target,
-# any Go package that vendors x/sys/unix fails to build here with
-# "missing function body" - which is most Go software.
+# Go software vendors its dependencies, and several widely-vendored
+# modules carry per-architecture files that have no sparc64 variant:
 #
-# Until that support is upstream, add the missing per-architecture files
-# to vendored copies after unpack. The files live in
-# /etc/portage/sparc64-xsys/; delete this file or that directory to
-# disable, and both become no-ops once upstream ships the real ones,
-# because each copy is skipped when the file is already present.
+#   golang.org/x/sys/unix     gc syscall trampolines (asm_linux_sparc64.s)
+#   golang.org/x/sys/cpu      cacheLineSize, initOptions
+#   golang.org/x/net/.../socket  cmsghdr, iovec, msghdr, mmsghdr layouts
+#   github.com/moby/sys/signal   SPARC has no SIGSTKFLT (SunOS numbering)
+#   go.etcd.io/bbolt          MaxMapSize, MaxAllocSize
+#
+# Without them the vendored package has no function bodies or no type
+# definitions on this architecture, and the build fails. That is most Go
+# software, so patching each package separately does not scale.
+#
+# The files live in /etc/portage/sparc64-arch/, laid out by module path,
+# mirrored from https://github.com/shalseth/go-sparc64-deps. Two kinds:
+#
+#   *_sparc64.*  new files upstream does not have. Added when absent, so
+#                each becomes a no-op the day upstream ships its own.
+#
+#   everything else  replacements for upstream files, needed where a fix
+#                is an edit rather than an addition. Only applied when the
+#                vendored copy still hashes to a version recorded in
+#                pristine-checksums.txt; on any other content the file is
+#                left alone and a warning is printed, because a newer
+#                upstream may have fixed it differently or moved on.
+#
+# Delete this file or that directory to disable.
 
-_sparc64_xsys_inject() {
+_sparc64_arch_inject() {
 	[[ ${ARCH} == sparc ]] || return 0
 	[[ ${INHERITED} == *go-module* || ${INHERITED} == *golang-* ]] || return 0
 
-	local src=/etc/portage/sparc64-xsys
-	[[ -d ${src} ]] || return 0
-	[[ -d ${WORKDIR} ]] || return 0
+	local src=/etc/portage/sparc64-arch
+	[[ -d ${src} && -d ${WORKDIR} ]] || return 0
 
-	local d
-	while IFS= read -r -d '' d; do
-		[[ -e ${d}/asm_linux_sparc64.s ]] && continue
-		[[ -e ${d}/syscall_unix_gc.go ]] || continue
-		cp -- "${src}/asm_linux_sparc64.s" "${d}/" 2>/dev/null &&
-			einfo "sparc64: added x/sys/unix syscall trampolines to ${d#"${WORKDIR}"/}"
-	done < <(find "${WORKDIR}" -type d -path '*/golang.org/x/sys/unix' -print0 2>/dev/null)
+	local f rel dir base d sum
+	local sums=${src}/pristine-checksums.txt
 
-	while IFS= read -r -d '' d; do
-		[[ -e ${d}/cpu_sparc64.go ]] && continue
-		[[ -e ${d}/cpu.go ]] || continue
-		cp -- "${src}/cpu_sparc64.go" "${d}/" 2>/dev/null &&
-			einfo "sparc64: added x/sys/cpu support to ${d#"${WORKDIR}"/}"
-	done < <(find "${WORKDIR}" -type d -path '*/golang.org/x/sys/cpu' -print0 2>/dev/null)
+	while IFS= read -r -d '' f; do
+		rel=${f#"${src}"/}
+		[[ ${rel} == pristine-checksums.txt ]] && continue
+		dir=${rel%/*}
+		base=${rel##*/}
+
+		while IFS= read -r -d '' d; do
+			if [[ ${base} == *_sparc64.* ]]; then
+				# additive: upstream has no such file
+				[[ -e ${d}/${base} ]] && continue
+				cp -- "${f}" "${d}/" 2>/dev/null &&
+					einfo "sparc64: added ${rel} to ${d#"${WORKDIR}"/}"
+				continue
+			fi
+
+			# replacement: only over a recorded pristine version
+			[[ -e ${d}/${base} ]] || continue
+			cmp -s -- "${f}" "${d}/${base}" && continue
+			sum=$(sha256sum -- "${d}/${base}" 2>/dev/null | cut -d' ' -f1)
+			if [[ -f ${sums} ]] && grep -qs "^${sum}  ${rel}\$" "${sums}"; then
+				cp -- "${f}" "${d}/${base}" 2>/dev/null &&
+					einfo "sparc64: replaced ${rel} in ${d#"${WORKDIR}"/}"
+			else
+				ewarn "sparc64: ${d#"${WORKDIR}"/}/${base} is not a version this"
+				ewarn "sparc64: overlay knows how to patch; leaving it alone."
+				ewarn "sparc64: regenerate go-sparc64-deps against it if the build fails."
+			fi
+		done < <(find "${WORKDIR}" -type d -path "*/${dir}" -print0 2>/dev/null)
+	done < <(find "${src}" -type f -print0 2>/dev/null)
+
+	# moby/sys/signal needs an edit as well as an addition: signal_linux.go
+	# claims every non-MIPS Linux architecture, and must yield sparc64 to
+	# the file added above. Idempotent - the guard is the tag itself.
+	while IFS= read -r -d '' f; do
+		grep -qs 'sparc64' "${f}" && continue
+		[[ -e ${f%/*}/signal_linux_sparc64.go ]] || continue
+		sed -i -e 's|^//go:build !mips && !mipsle && !mips64 && !mips64le$|//go:build !mips \&\& !mipsle \&\& !mips64 \&\& !mips64le \&\& !sparc64|' \
+		       -e 's|^// +build !mips,!mipsle,!mips64,!mips64le$|// +build !mips,!mipsle,!mips64,!mips64le,!sparc64|' \
+			"${f}" 2>/dev/null &&
+			einfo "sparc64: excluded sparc64 from ${f#"${WORKDIR}"/}"
+	done < <(find "${WORKDIR}" -type f -path '*/moby/sys/signal/signal_linux.go' -print0 2>/dev/null)
 }
 
-post_src_unpack() { _sparc64_xsys_inject; }
-post_src_prepare() { _sparc64_xsys_inject; }
+post_src_unpack() { _sparc64_arch_inject; }
+post_src_prepare() { _sparc64_arch_inject; }

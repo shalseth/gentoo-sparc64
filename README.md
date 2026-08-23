@@ -113,41 +113,73 @@ fails if the release is not published yet.
 
 ## Building other Go packages
 
-`golang.org/x/sys` has no gc syscall trampolines for linux/sparc64
-(`unix/asm_linux_sparc64.s`), and `syscall_unix_gc.go` declares those
-functions for every gc unix target, so the package does not compile here at
-all — and with it neither does most Go software, which reaches x/sys
-transitively. `x/sys/cpu` is missing its per-architecture file too.
+Go software vendors its dependencies, and several very widely vendored
+modules carry per-architecture files with no sparc64 variant. Without them
+the vendored package has no function bodies, or no type definitions, and
+the build fails — so this affects most Go software rather than a few
+packages:
 
-`portage-config/` carries what closes that gap until the support is
-upstream:
+| module | what is missing |
+|---|---|
+| `golang.org/x/sys/unix` | the gc syscall trampolines. `syscall_unix_gc.go` declares those functions for every gc unix target, so the package does not compile here at all |
+| `golang.org/x/sys/cpu` | `cacheLineSize`, `initOptions` |
+| `golang.org/x/net/internal/socket` | the `cmsghdr`, `iovec`, `msghdr` and `mmsghdr` layouts |
+| `github.com/moby/sys/signal` | SPARC has no `SIGSTKFLT`. It follows the SunOS numbering, where signal 16 is `SIGURG` and `SIGEMT` sits at 7 |
+| `go.etcd.io/bbolt` | `MaxMapSize`, `MaxAllocSize` |
+
+Patching each consumer separately does not scale, so `portage-config/`
+closes the gap once, for every package that inherits `go-module`:
 
 ```sh
-cp -r portage-config/bashrc /etc/portage/bashrc
-cp -r portage-config/sparc64-xsys /etc/portage/
+cp portage-config/bashrc /etc/portage/bashrc
+./portage-config/sync-arch-files.sh
 cp -r portage-config/patches/. /etc/portage/patches/
 ```
 
-The `bashrc` hook adds the two missing files to any `go-module` package's
-vendored copy of x/sys after unpack. It skips a directory that already has
-them, so it becomes a no-op the day upstream ships the real ones, and it
-only touches packages that inherit `go-module`. Delete the file to disable
-it.
+The hook runs after unpack and prepare, and handles two kinds of file:
+
+* **Additions** — anything named `*_sparc64.*`, which upstream simply does
+  not have. Added only when absent, so each becomes a no-op the day
+  upstream ships its own.
+* **Replacements** — for the fixes that are an edit rather than an
+  addition, such as adding sparc64 to a `_64bit.go` build tag. These are
+  applied only when the vendored copy still hashes to a version recorded
+  in `pristine-checksums.txt`. Over anything else the file is left alone
+  and a warning printed, because a newer upstream may have fixed it
+  differently, or moved on.
+
+The files themselves are not kept in this repo. They are generic to the
+architecture rather than to Gentoo, so they live in
+[shalseth/go-sparc64-deps](https://github.com/shalseth/go-sparc64-deps) and
+`sync-arch-files.sh` mirrors them into `/etc/portage/sparc64-arch/`. One
+copy, so the two cannot drift.
 
 Verified this way: `dev-util/github-cli`, `app-containers/runc`,
-`app-containers/containerd`.
+`app-containers/containerd`, `app-containers/docker`,
+`app-containers/docker-cli`.
 
-`portage-config/patches/` holds the per-package gaps that are not about
-x/sys. containerd needs three: `moby/sys/signal` assumes every non-MIPS
-Linux architecture has `SIGSTKFLT`, which SPARC does not have (signal 16 is
-`SIGURG`, and it carries `SIGEMT` at 7); `bbolt` needs a per-architecture
-`MaxAllocSize`; and its `Makefile.linux` adds `-buildmode=pie` everywhere
-except a short list of architectures, which sparc64 belongs on because the
-port has no position-independent code model.
+`portage-config/patches/` is then only for the genuinely package-specific
+remainder — currently just the two build systems that add
+`-buildmode=pie` for every architecture except a short list, which sparc64
+belongs on because the port has no position-independent code model.
 
-Some ebuilds for repositories with nested Go modules ship an incomplete
-module cache — containerd's `api/` submodule is one — and need
-`FEATURES="-network-sandbox" emerge …` to fetch the remainder.
+Two things that are not sparc64 problems but look like them:
 
-The dependency-side files also live, toolchain-independently, in
-[shalseth/go-sparc64-deps](https://github.com/shalseth/go-sparc64-deps).
+* Some ebuilds for repositories with nested Go modules ship an incomplete
+  module cache — containerd's `api/` submodule is one — and need
+  `FEATURES="-network-sandbox" emerge …` to fetch the remainder.
+* Docker and docker-cli before 29.7.2 vendor `golang.org/x/net` v0.54.0,
+  whose `http2.TrailerPrefix` is declared only in a file excluded under Go
+  1.27 and newer, so `google.golang.org/grpc` fails to compile. x/net
+  v0.55.0 moved the constant to an untagged file; 29.7.2 vendors v0.57.0
+  and needs nothing. On an older release, build with the `http2legacy` tag.
+
+`dockerd` creates iptables rules on startup unless told not to. On a
+kernel built without those modules, `/etc/docker/daemon.json`:
+
+```json
+{
+  "iptables": false,
+  "ip6tables": false
+}
+```

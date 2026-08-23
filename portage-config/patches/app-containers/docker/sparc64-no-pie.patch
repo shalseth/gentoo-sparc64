@@ -1,0 +1,17 @@
+linux/sparc64 has no position-independent-code model in the gc
+compiler, so -buildmode=pie is unsupported there, exactly as for the
+architectures already listed in this case.
+
+--- a/hack/make/.binary
++++ b/hack/make/.binary
+@@ -39,8 +39,8 @@
+ 		# -buildmode=pie not supported when -race is enabled
+ 		if [[ " $BUILDFLAGS " != *" -race "* ]]; then
+ 			case "$(go env GOOS)/$(go env GOARCH)" in
+-				linux/mips* | linux/ppc64)
+-					# -buildmode=pie is not supported on Linux mips*, ppc64be
++				linux/mips* | linux/ppc64 | linux/sparc64)
++					# -buildmode=pie is not supported on Linux mips*, ppc64be, sparc64
+ 					# https://github.com/golang/go/blob/go1.24.3/src/internal/platform/supported.go#L188-L200
+ 					;;
+ 				*)
