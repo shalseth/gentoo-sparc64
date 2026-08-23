@@ -107,3 +107,44 @@ Attach the tarball to a release of the port's repository, bump `PV` and
 dev-lang/go/go-<PV>.ebuild manifest`. Note that `ebuild --force
 manifest` deletes the local distfile in order to re-fetch it, which
 fails if the release is not published yet.
+
+## Building other Go packages
+
+`golang.org/x/sys` has no gc syscall trampolines for linux/sparc64
+(`unix/asm_linux_sparc64.s`), and `syscall_unix_gc.go` declares those
+functions for every gc unix target, so the package does not compile here at
+all — and with it neither does most Go software, which reaches x/sys
+transitively. `x/sys/cpu` is missing its per-architecture file too.
+
+`portage-config/` carries what closes that gap until the support is
+upstream:
+
+```sh
+cp -r portage-config/bashrc /etc/portage/bashrc
+cp -r portage-config/sparc64-xsys /etc/portage/
+cp -r portage-config/patches/. /etc/portage/patches/
+```
+
+The `bashrc` hook adds the two missing files to any `go-module` package's
+vendored copy of x/sys after unpack. It skips a directory that already has
+them, so it becomes a no-op the day upstream ships the real ones, and it
+only touches packages that inherit `go-module`. Delete the file to disable
+it.
+
+Verified this way: `dev-util/github-cli`, `app-containers/runc`,
+`app-containers/containerd`.
+
+`portage-config/patches/` holds the per-package gaps that are not about
+x/sys. containerd needs three: `moby/sys/signal` assumes every non-MIPS
+Linux architecture has `SIGSTKFLT`, which SPARC does not have (signal 16 is
+`SIGURG`, and it carries `SIGEMT` at 7); `bbolt` needs a per-architecture
+`MaxAllocSize`; and its `Makefile.linux` adds `-buildmode=pie` everywhere
+except a short list of architectures, which sparc64 belongs on because the
+port has no position-independent code model.
+
+Some ebuilds for repositories with nested Go modules ship an incomplete
+module cache — containerd's `api/` submodule is one — and need
+`FEATURES="-network-sandbox" emerge …` to fetch the remainder.
+
+The dependency-side files also live, toolchain-independently, in
+[shalseth/go-sparc64-deps](https://github.com/shalseth/go-sparc64-deps).

@@ -1,0 +1,15 @@
+linux/sparc64 has no position-independent-code model in the gc
+compiler, so -buildmode=pie is unsupported there, exactly as for the
+architectures already excluded below.
+
+--- a/Makefile.linux
++++ b/Makefile.linux
+@@ -20,7 +20,7 @@
+ 
+ # check GOOS for cross compile builds
+ ifeq ($(GOOS),linux)
+-  ifneq ($(GOARCH),$(filter $(GOARCH),mips mipsle mips64 mips64le ppc64))
++  ifneq ($(GOARCH),$(filter $(GOARCH),mips mipsle mips64 mips64le ppc64 sparc64))
+     ifeq ($(STATIC),)
+ 	    GO_GCFLAGS += -buildmode=pie
+     endif

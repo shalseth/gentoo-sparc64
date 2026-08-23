@@ -1,0 +1,41 @@
+# Portage bashrc for linux/sparc64.
+#
+# golang.org/x/sys carries the generated syscall, errno, sysnum and type
+# files for linux/sparc64, but not the gc syscall trampolines
+# (unix/asm_linux_sparc64.s) nor cpu/cpu_sparc64.go. Since
+# syscall_unix_gc.go declares those functions for every gc unix target,
+# any Go package that vendors x/sys/unix fails to build here with
+# "missing function body" - which is most Go software.
+#
+# Until that support is upstream, add the missing per-architecture files
+# to vendored copies after unpack. The files live in
+# /etc/portage/sparc64-xsys/; delete this file or that directory to
+# disable, and both become no-ops once upstream ships the real ones,
+# because each copy is skipped when the file is already present.
+
+_sparc64_xsys_inject() {
+	[[ ${ARCH} == sparc ]] || return 0
+	[[ ${INHERITED} == *go-module* || ${INHERITED} == *golang-* ]] || return 0
+
+	local src=/etc/portage/sparc64-xsys
+	[[ -d ${src} ]] || return 0
+	[[ -d ${WORKDIR} ]] || return 0
+
+	local d
+	while IFS= read -r -d '' d; do
+		[[ -e ${d}/asm_linux_sparc64.s ]] && continue
+		[[ -e ${d}/syscall_unix_gc.go ]] || continue
+		cp -- "${src}/asm_linux_sparc64.s" "${d}/" 2>/dev/null &&
+			einfo "sparc64: added x/sys/unix syscall trampolines to ${d#"${WORKDIR}"/}"
+	done < <(find "${WORKDIR}" -type d -path '*/golang.org/x/sys/unix' -print0 2>/dev/null)
+
+	while IFS= read -r -d '' d; do
+		[[ -e ${d}/cpu_sparc64.go ]] && continue
+		[[ -e ${d}/cpu.go ]] || continue
+		cp -- "${src}/cpu_sparc64.go" "${d}/" 2>/dev/null &&
+			einfo "sparc64: added x/sys/cpu support to ${d#"${WORKDIR}"/}"
+	done < <(find "${WORKDIR}" -type d -path '*/golang.org/x/sys/cpu' -print0 2>/dev/null)
+}
+
+post_src_unpack() { _sparc64_xsys_inject; }
+post_src_prepare() { _sparc64_xsys_inject; }
