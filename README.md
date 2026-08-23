@@ -52,7 +52,7 @@ go version
 
 Two ebuilds are available:
 
-* `dev-lang/go-1.28.0_pre20260820` unpacks a prebuilt toolchain from a
+* `dev-lang/go-1.28.0_pre20260823` unpacks a prebuilt toolchain from a
   release of the port's repository. Nothing needs to be compiled, which
   also solves the bootstrap problem: Go is written in Go, so building it
   requires a Go.
@@ -62,7 +62,8 @@ Two ebuilds are available:
 
 ## Building Go packages
 
-Anything that does not need cgo should build. Most Go packages in
+cgo and external linking both work, so packages that need them - `runc`,
+`containerd`, `github-cli` - build like anywhere else. Most Go packages in
 `::gentoo` are keyworded `~amd64`/`~arm64` only, so each needs its own
 entry - an overlay cannot override another repository's keywords:
 
@@ -75,11 +76,13 @@ emerge -av app-benchmarks/hey
 
 These come from the port, not from the packaging:
 
-* No cgo and no external linking. The toolchain defaults to
-  `CGO_ENABLED=0`; packages that force cgo, such as
-  `app-containers/runc`, cannot be built.
-* `-buildmode` is limited to `exe`, and the race detector is
-  unavailable.
+* `-buildmode` is limited to `exe`. There is no PIE support, because
+  SPARC V9 has no PC-relative addressing and position-independent code
+  needs a register dedicated to the GOT; packages whose build system
+  hard-codes `-buildmode=pie` need that turned off, as the
+  `app-containers/containerd` patch here does.
+* No race detector. It needs a TSan runtime port, which lives in LLVM,
+  not in Go.
 * No sparc64 disassembler, so `go tool objdump` and pprof's
   annotated-assembly view do not work. Collecting and reading profiles
   is unaffected. GNU `objdump` reads the binaries perfectly well.
