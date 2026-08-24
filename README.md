@@ -183,3 +183,53 @@ kernel built without those modules, `/etc/docker/daemon.json`:
   "ip6tables": false
 }
 ```
+
+## Docker
+
+`app-containers/docker`, `docker-cli`, `containerd` and `runc` all build and
+run. Containers work, including bridge networking. Three things stood between
+a working toolchain and a running container, and all three are handled by the
+config in `portage-config/`:
+
+* **A wrong `Stat_t` in `golang.org/x/sys`.** The generated struct never
+  matched what the sparc64 kernel writes, and `Stat`/`Lstat`/`Fstat` pointed at
+  the legacy stat calls while `Fstatat` used `fstatat64` - four functions
+  filling one struct from two incompatible layouts. runc reads the inode of
+  `/proc` to confirm it is really procfs, got garbage, and refused to start
+  anything. `fix-xsys-stat.py` corrects it in whatever x/sys version a package
+  vendored.
+* **A hardcoded `O_PATH` in `containerd/fifo`.** `handle_linux.go` carries its
+  own `const O_PATH = 010000000`, which is right on x86, arm and mips. SPARC
+  numbers its open flags differently: `O_PATH` is `0x1000000` there and
+  `0x200000` is `O_NOATIME`. So the FIFO was opened for reading and blocked
+  until a writer appeared - every `docker run` hung with the container stuck in
+  `Created` and nothing in the log. `fix-fifo-opath.py` points it at
+  `syscall.O_PATH`.
+* **Missing kernel options**, none sparc64-specific. In the order they bite:
+  `CONFIG_OVERLAY_FS`; `CONFIG_POSIX_MQUEUE`; `CONFIG_BPF_SYSCALL` with
+  `CONFIG_CGROUP_BPF` (runc applies the device cgroup through eBPF on cgroup v2
+  and there is no way to opt out); the cgroup controllers `CONFIG_MEMCG`,
+  `CONFIG_CGROUP_SCHED`, `CONFIG_CPUSETS`, `CONFIG_BLK_CGROUP`,
+  `CONFIG_CGROUP_PIDS`, `CONFIG_CGROUP_DEVICE`, `CONFIG_CGROUP_FREEZER`; and
+  `CONFIG_VETH` for networking. `contrib/check-config.sh` from the docker
+  source audits all of it.
+
+`CONFIG_SECCOMP_FILTER` is optional - without it the daemon warns and runs
+containers with no default profile. Outbound NAT needs the `IP_NF_*` set and
+`"iptables": true`; with `"iptables": false` in `/etc/docker/daemon.json`,
+container-to-host and container-to-container traffic still work.
+
+### A container base image
+
+There are no sparc64 images in any registry, so build one:
+
+```sh
+./contrib/mkimage.sh
+docker run --rm -it sparc64/gentoo-base:1 bash
+```
+
+`contrib/mkimage.sh` assembles a rootfs from the running system - bash, the
+core utilities, and their library closure - and imports it. It uses
+`docker import` rather than a Dockerfile because `docker build` defaults to
+BuildKit, which wants to pull `moby/buildkit`, and no sparc64 build of that
+exists.

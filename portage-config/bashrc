@@ -1,30 +1,38 @@
 # Portage bashrc for linux/sparc64.
 #
-# Go software vendors its dependencies, and several widely-vendored
-# modules carry per-architecture files that have no sparc64 variant:
+# Go software vendors its dependencies, and several very widely vendored
+# modules carry per-architecture files that are missing or wrong on sparc64:
 #
-#   golang.org/x/sys/unix     gc syscall trampolines (asm_linux_sparc64.s)
+#   golang.org/x/sys/unix     gc syscall trampolines (asm_linux_sparc64.s),
+#                             and a Stat_t that no kernel ever writes
 #   golang.org/x/sys/cpu      cacheLineSize, initOptions
 #   golang.org/x/net/.../socket  cmsghdr, iovec, msghdr, mmsghdr layouts
 #   github.com/moby/sys/signal   SPARC has no SIGSTKFLT (SunOS numbering)
 #   go.etcd.io/bbolt          MaxMapSize, MaxAllocSize
 #
-# Without them the vendored package has no function bodies or no type
-# definitions on this architecture, and the build fails. That is most Go
-# software, so patching each package separately does not scale.
+# Without them the vendored package has no function bodies, no type
+# definitions, or silently wrong ones. That is most Go software, so patching
+# each consumer separately does not scale.
 #
-# The files live in /etc/portage/sparc64-arch/, laid out by module path,
-# mirrored from https://github.com/shalseth/go-sparc64-deps. Two kinds:
+# Files live in /etc/portage/sparc64-arch/, laid out by module path, mirrored
+# from https://github.com/shalseth/go-sparc64-deps. Three mechanisms:
 #
-#   *_sparc64.*  new files upstream does not have. Added when absent, so
-#                each becomes a no-op the day upstream ships its own.
+#   absent      the file is added. Upstream has no such file, so this becomes
+#               a no-op the day it ships one.
 #
-#   everything else  replacements for upstream files, needed where a fix
-#                is an edit rather than an addition. Only applied when the
-#                vendored copy still hashes to a version recorded in
-#                pristine-checksums.txt; on any other content the file is
-#                left alone and a warning is printed, because a newer
-#                upstream may have fixed it differently or moved on.
+#   present     replaced only when the vendored copy still hashes to a version
+#               recorded in pristine-checksums.txt. On anything else it is left
+#               alone with a warning, since a newer upstream may have fixed it
+#               differently.
+#
+#   corrected   the sparc64 stat ABI is patched in place by fix-xsys-stat.py,
+#               targeting the Stat_t/Flock_t definitions and the three legacy
+#               stat syscall numbers rather than replacing whole files. This
+#               has to be version-independent: vendored x/sys copies range over
+#               many releases, and a version-pinned file silently fails to
+#               apply to every one of them. A wrong Stat_t is not cosmetic -
+#               runc reads garbage for the /proc root inode and refuses to
+#               start any container.
 #
 # Delete this file or that directory to disable.
 
@@ -35,27 +43,37 @@ _sparc64_arch_inject() {
 	local src=/etc/portage/sparc64-arch
 	[[ -d ${src} && -d ${WORKDIR} ]] || return 0
 
-	local f rel dir base d sum
+	local f rel dir base d sum line
 	local sums=${src}/pristine-checksums.txt
 
 	while IFS= read -r -d '' f; do
 		rel=${f#"${src}"/}
-		[[ ${rel} == pristine-checksums.txt ]] && continue
+		[[ ${rel} == pristine-checksums.txt || ${rel} == *.py ]] && continue
 		dir=${rel%/*}
 		base=${rel##*/}
 
 		while IFS= read -r -d '' d; do
-			if [[ ${base} == *_sparc64.* ]]; then
-				# additive: upstream has no such file
-				[[ -e ${d}/${base} ]] && continue
+			# Decide by whether the file is there, NOT by its name. Several
+			# of these are named *_sparc64.go yet already exist upstream,
+			# and treating those as additions skipped them silently.
+			if [[ ! -e ${d}/${base} ]]; then
 				cp -- "${f}" "${d}/" 2>/dev/null &&
 					einfo "sparc64: added ${rel} to ${d#"${WORKDIR}"/}"
 				continue
 			fi
 
-			# replacement: only over a recorded pristine version
-			[[ -e ${d}/${base} ]] || continue
 			cmp -s -- "${f}" "${d}/${base}" && continue
+
+			# these are owned by fix-xsys-stat.py below, which corrects them
+			# in place at whatever version the package vendored
+			case ${base} in
+			ztypes_linux_sparc64.go|zsyscall_linux_sparc64.go|\
+			syscall_linux_sparc64.go|zerrors_linux_sparc64.go|\
+			zsysnum_linux_sparc64.go)
+				continue
+				;;
+			esac
+
 			sum=$(sha256sum -- "${d}/${base}" 2>/dev/null | cut -d' ' -f1)
 			if [[ -f ${sums} ]] && grep -qs "^${sum}  ${rel}\$" "${sums}"; then
 				cp -- "${f}" "${d}/${base}" 2>/dev/null &&
@@ -63,14 +81,34 @@ _sparc64_arch_inject() {
 			else
 				ewarn "sparc64: ${d#"${WORKDIR}"/}/${base} is not a version this"
 				ewarn "sparc64: overlay knows how to patch; leaving it alone."
-				ewarn "sparc64: regenerate go-sparc64-deps against it if the build fails."
 			fi
 		done < <(find "${WORKDIR}" -type d -path "*/${dir}" -print0 2>/dev/null)
 	done < <(find "${src}" -type f -print0 2>/dev/null)
 
+	# Correct the sparc64 ABI bugs that vendored modules carry, at whatever
+	# version they pinned. Whole-file replacement cannot do this: the copies
+	# span many releases and a version-pinned file silently matches none of
+	# them. Each fixer takes WORKDIR and finds its own targets.
+	if [[ -x ${src}/fix-xsys-stat.py ]]; then
+		while IFS= read -r -d '' d; do
+			while IFS= read -r line; do
+				einfo "sparc64: ${line}"
+			done < <(python3 "${src}/fix-xsys-stat.py" "${d}" 2>/dev/null)
+		done < <(find "${WORKDIR}" -type d -path '*/golang.org/x/sys/unix' -print0 2>/dev/null)
+	fi
+
+	local fixer
+	for fixer in "${src}"/fix-*.py; do
+		[[ -x ${fixer} ]] || continue
+		[[ ${fixer} == */fix-xsys-stat.py ]] && continue   # handled above
+		while IFS= read -r line; do
+			einfo "sparc64: ${line}"
+		done < <(python3 "${fixer}" "${WORKDIR}" 2>/dev/null)
+	done
+
 	# moby/sys/signal needs an edit as well as an addition: signal_linux.go
-	# claims every non-MIPS Linux architecture, and must yield sparc64 to
-	# the file added above. Idempotent - the guard is the tag itself.
+	# claims every non-MIPS Linux architecture, and must yield sparc64 to the
+	# file added above. Idempotent - the guard is the tag itself.
 	while IFS= read -r -d '' f; do
 		grep -qs 'sparc64' "${f}" && continue
 		[[ -e ${f%/*}/signal_linux_sparc64.go ]] || continue
