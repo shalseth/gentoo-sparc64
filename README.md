@@ -205,6 +205,17 @@ config in `portage-config/`:
   until a writer appeared - every `docker run` hung with the container stuck in
   `Created` and nothing in the log. `fix-fifo-opath.py` points it at
   `syscall.O_PATH`.
+* **Wrong termios control-character indices in `golang.org/x/sys`.** SPARC
+  numbers them differently - `VMIN` is 4 and shares its slot with `VEOF`,
+  where most architectures use 6 - and x/sys shipped the generic values. Raw
+  mode is `termios.Cc[unix.VMIN] = 1`, so the assignment landed in a slot
+  nothing reads, the real `VMIN` kept its default of 4, and every read on the
+  terminal blocked until four bytes arrived. `docker run -it` delivered stdin
+  in 4-byte groups: four keystrokes before anything appeared, and Return doing
+  nothing until something followed. `fix-xsys-termios.py` corrects it. The
+  client is what puts your terminal in raw mode, so `docker-cli` is the
+  package that matters, though `dockerd`, `containerd` and `runc` all link
+  code that reads the constant.
 * **Missing kernel options**, none sparc64-specific. In the order they bite:
   `CONFIG_OVERLAY_FS`; `CONFIG_POSIX_MQUEUE`; `CONFIG_BPF_SYSCALL` with
   `CONFIG_CGROUP_BPF` (runc applies the device cgroup through eBPF on cgroup v2
