@@ -27,7 +27,8 @@ src_compile() {
 	# make.bash needs a Go to build with; take the installed one unless
 	# the caller points somewhere else.
 	export GOROOT_BOOTSTRAP="${GOROOT_BOOTSTRAP:-$(go env GOROOT)}"
-	export GOOS=linux GOARCH=sparc64 CGO_ENABLED=0
+	# The binary releases are built with cgo, so build the same way here.
+	export GOOS=linux GOARCH=sparc64 CGO_ENABLED=1
 	cd src || die
 	./make.bash || die
 }
