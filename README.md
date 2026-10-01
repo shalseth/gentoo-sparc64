@@ -22,6 +22,15 @@ special configuration.
 
 ## Adding the overlay
 
+`dev-vcs/git` is required either way, since both methods sync over git and
+`dev-lang/go-9999` builds through `git-r3`. A clean install has neither it
+nor `eselect-repository`, and without git the sync fails with `!!! Command
+not found: git`:
+
+```sh
+emerge -an dev-vcs/git app-eselect/eselect-repository
+```
+
 With `app-eselect/eselect-repository`:
 
 ```sh
@@ -52,10 +61,11 @@ go version
 
 Two ebuilds are available:
 
-* `dev-lang/go-1.28.0_pre20260823` unpacks a prebuilt toolchain from a
+* `dev-lang/go-1.28.0_pre20260928` unpacks a prebuilt toolchain from a
   release of the port's repository. Nothing needs to be compiled, which
   also solves the bootstrap problem: Go is written in Go, so building it
-  requires a Go.
+  requires a Go. Take the newest such ebuild: earlier ones carry bugs
+  fixed since.
 * `dev-lang/go-9999` builds from the `sparc64` branch with `git-r3`,
   using an already-installed toolchain to bootstrap. Useful after
   pushing changes to the port.
@@ -81,15 +91,10 @@ These come from the port, not from the packaging:
   needs a register dedicated to the GOT; packages whose build system
   hard-codes `-buildmode=pie` need that turned off, as the
   `app-containers/containerd` patch here does.
-* No race detector. It needs a TSan runtime port, which lives in LLVM,
-  not in Go.
-* No sparc64 disassembler, so `go tool objdump` and pprof's
-  annotated-assembly view do not work. Collecting and reading profiles
-  is unaffected. GNU `objdump` reads the binaries perfectly well.
 
 `README.sparc64.md` in the port's repository documents the port itself,
-including what the toolchain uses the T4's on-core crypto instructions
-for and where the hand-written assembly lives.
+including what the toolchain uses the on-core crypto instructions for and
+where the hand-written assembly lives.
 
 ## Updating the binary ebuild
 
