@@ -61,7 +61,7 @@ go version
 
 Two ebuilds are available:
 
-* `dev-lang/go-1.28.0_pre20260928` unpacks a prebuilt toolchain from a
+* `dev-lang/go-1.28.0_pre20261002` unpacks a prebuilt toolchain from a
   release of the port's repository. Nothing needs to be compiled, which
   also solves the bootstrap problem: Go is written in Go, so building it
   requires a Go. Take the newest such ebuild: earlier ones carry bugs
