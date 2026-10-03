@@ -133,15 +133,23 @@ packages:
 | `go.etcd.io/bbolt` | `MaxMapSize`, `MaxAllocSize` |
 
 Patching each consumer separately does not scale, so `portage-config/`
-closes the gap once, for every package that inherits `go-module`:
+closes the gap once, for every package that inherits `go-module`. From the
+overlay checkout:
 
 ```sh
-cp portage-config/bashrc /etc/portage/bashrc
+./portage-config/install-portage-config.sh
 ./portage-config/sync-arch-files.sh
-cp -r portage-config/patches/. /etc/portage/patches/
 ```
 
-The hook runs after unpack and prepare, and handles two kinds of file:
+The first installs the hook as `/etc/portage/bashrc`, the `fix-*.py`
+scripts it runs into `/etc/portage/sparc64-arch/`, and the package patches
+into `/etc/portage/patches/`. The second clones go-sparc64-deps and mirrors
+its files into `/etc/portage/sparc64-arch/` as well. Run both: the hook
+needs the files from the second and the fix scripts from the first, and
+without the fix scripts runc, containerd and docker misbehave in the ways
+described under Docker below.
+
+The hook runs after unpack and prepare, and handles three kinds of change:
 
 * **Additions** — anything named `*_sparc64.*`, which upstream simply does
   not have. Added only when absent, so each becomes a no-op the day
@@ -152,6 +160,11 @@ The hook runs after unpack and prepare, and handles two kinds of file:
   in `pristine-checksums.txt`. Over anything else the file is left alone
   and a warning printed, because a newer upstream may have fixed it
   differently, or moved on.
+* **Corrections** — fixes that have to work on whatever version a package
+  vendored, so they edit the vendored source in place rather than replace
+  a file: the x/sys stat ABI and termios indices, the hardcoded `O_PATH` in
+  containerd/fifo, and SPARC support in libseccomp-golang and runc's
+  seccomp code. These are the `fix-*.py` scripts.
 
 The files themselves are not kept in this repo. They are generic to the
 architecture rather than to Gentoo, so they live in
@@ -229,6 +242,21 @@ config in `portage-config/`:
   `CONFIG_CGROUP_PIDS`, `CONFIG_CGROUP_DEVICE`, `CONFIG_CGROUP_FREEZER`; and
   `CONFIG_VETH` for networking. `contrib/check-config.sh` from the docker
   source audits all of it.
+
+runc builds with seccomp only with a libseccomp that knows SPARC. The Gentoo
+sparc profile masks `seccomp` because the tree's libseccomp is not keyworded
+for SPARC (bug 524148); this overlay carries a snapshot of upstream
+libseccomp that builds and works here, `sys-libs/libseccomp-2.7.0_pre20250824`.
+To use it:
+
+```sh
+echo 'app-containers/runc -seccomp' >> /etc/portage/profile/package.use.mask
+echo 'app-containers/runc seccomp' >> /etc/portage/package.use/runc
+echo 'sys-libs/libseccomp::sparc64 ~sparc' >> /etc/portage/package.accept_keywords/sparc64-libseccomp
+```
+
+`fix-seccomp-sparc64.py` then teaches the vendored libseccomp-golang and
+runc's seccomp code about SPARC.
 
 `CONFIG_SECCOMP_FILTER` is optional - without it the daemon warns and runs
 containers with no default profile. Outbound NAT needs the `IP_NF_*` set and
