@@ -86,11 +86,10 @@ emerge -av app-benchmarks/hey
 
 These come from the port, not from the packaging:
 
-* `-buildmode` is limited to `exe`. There is no PIE support, because
-  SPARC V9 has no PC-relative addressing and position-independent code
-  needs a register dedicated to the GOT; packages whose build system
-  hard-codes `-buildmode=pie` need that turned off, as the
-  `app-containers/containerd` patch here does.
+* `-buildmode=pie` needs `sparc64-20261017b` or newer, and links through
+  gcc. The load address is only randomized on a kernel whose sparc64 ELF
+  loader does so (`ARCH_HAS_ELF_RANDOMIZE`). `c-archive`, `c-shared`,
+  `shared` and `plugin` are not supported.
 
 `README.sparc64.md` in the port's repository documents the port itself,
 including what the toolchain uses the on-core crypto instructions for and
@@ -177,9 +176,13 @@ Verified this way: `dev-util/github-cli`, `app-containers/runc`,
 `app-containers/docker-cli`.
 
 `portage-config/patches/` is then only for the genuinely package-specific
-remainder — currently just the two build systems that add
-`-buildmode=pie` for every architecture except a short list, which sparc64
-belongs on because the port has no position-independent code model.
+remainder, and nothing needs one at the moment. Toolchains before
+`sparc64-20261017b` had no PIE, and containerd and docker needed a
+`sparc64-no-pie.patch` each to build; with a newer toolchain delete them:
+
+```sh
+rm /etc/portage/patches/app-containers/{containerd,docker}/sparc64-no-pie.patch
+```
 
 Two things that are not sparc64 problems but look like them:
 
