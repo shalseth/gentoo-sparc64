@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE pkgmetadata SYSTEM "https://www.gentoo.org/dtd/metadata.dtd">
+<pkgmetadata>
+	<maintainer type="person">
+		<email>stian@itx.no</email>
+		<name>Stian Halseth</name>
+	</maintainer>
+	<upstream>
+		<remote-id type="github">shalseth/node</remote-id>
+	</upstream>
+</pkgmetadata>

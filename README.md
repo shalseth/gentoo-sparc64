@@ -10,6 +10,7 @@ other packages from `::gentoo` here.
 |---|---|
 | `dev-lang/go` | Go, built from the [sparc64 port](https://github.com/shalseth/go/tree/sparc64) |
 | `sys-libs/libseccomp` | a snapshot of upstream libseccomp with SPARC support |
+| `net-libs/nodejs` | Node 26 and native V8 JIT, [built from Git source](#installing-nodejs) |
 
 Also in this repository:
 
@@ -18,9 +19,9 @@ Also in this repository:
 * `contrib/mkimage.sh` builds a Docker base image from the running
   system. See [Docker](#docker).
 
-Everything here is keyworded `~sparc`. Where `::gentoo` has the same
-package, the version here is higher, so Portage picks it once the keyword
-is accepted.
+Versioned ebuilds are keyworded `~sparc`; live ebuilds require an explicit
+unkeyworded-package entry as described in their sections. Where `::gentoo` has
+the same package, version and keyword rules determine which Portage selects.
 
 ## Requirements
 
@@ -283,3 +284,130 @@ core utilities, and their library closure) and imports it. It uses
 `docker import` rather than a Dockerfile because `docker build` defaults to
 BuildKit, which wants to pull `moby/buildkit`, and no sparc64 build of that
 exists.
+
+## Installing Node.js
+
+`net-libs/nodejs-9999` builds the live
+[shalseth/node `sparc64` branch](https://github.com/shalseth/node/tree/sparc64)
+from Git. **No prebuilt Node package or existing Node installation is needed.**
+The build uses native C/C++ and Rust toolchains and vendored Cargo dependencies.
+The tracked upstream line is **Node 26 (`nodejs/node:v26.x`)**, not `main`.
+GitHub's default fork comparison against `main` does not measure release-line lag.
+
+The port has Sparkplug/TurboFan JavaScript JIT, baseline and optimizing Wasm
+compilers, npm/npx, TypeScript stripping, Temporal, FFI, workers and snapshots.
+Maglev is disabled; Wasm SIMD currently uses scalar SPARC instructions.
+
+**This is an experimental out-of-tree port.** An intermittent Abseil futex
+EINVAL in the native C++ suite remains unresolved. Follow-up ordinary and
+kernel-traced suites and targeted signal/waiter tests have not reproduced it.
+Passing reruns do not establish that the failure is fixed. Some upstream
+Wasm/FFI tests have little-endian assumptions, architecture skips or stale
+expectations; derived controls are recorded separately from unchanged tests.
+
+### Requirements
+
+Use a 64-bit glibc Linux SPARC Gentoo profile. T4 and M7/T7 are the validated
+processors. Other processors and toolchains need their own validation.
+The ebuild uses GCC 16+, Rust/Cargo 1.99+, Python 3.12–3.14, GNU binutils,
+pkg-config, shared OpenSSL 3 and shared ICU 78 or newer. Portage resolves these
+dependencies. The initial validation toolchain used GCC 16.2.1, Rust 1.99.0,
+binutils 2.47, ICU 78.3 and OpenSSL 3.6.5.
+
+Allow at least **22 GiB free build space and 8 GiB memory**. Retaining several
+source/build trees needs additional disk space. Use `MAKEOPTS="-j96"` on T7;
+this avoids oversubscribing its 256 hardware threads. Rust dependencies are
+vendored and Cargo runs offline. Only Git fetching needs external network
+access during the ordinary build.
+
+### Emerge from Git
+
+After adding the overlay as described above:
+
+```sh
+emaint sync -r sparc64
+mkdir -p /etc/portage/package.accept_keywords
+echo '=net-libs/nodejs-9999::sparc64 **' \
+  >> /etc/portage/package.accept_keywords/sparc64-nodejs
+MAKEOPTS='-j96' emerge -av '=net-libs/nodejs-9999::sparc64'
+source /etc/profile
+node --version
+npm --version
+npx --version
+node -p 'process.arch'
+```
+
+The live ebuild is deliberately unkeyworded and requires the explicit `**`
+entry above. It records the fetched revision in Portage's build log. The initial
+port is based on v26.12.1; later upstream merges can change the reported version.
+The architecture should be `sparc64`.
+
+Optional `USE=test` runs the unchanged native C++ suite and bounded TypeScript,
+Temporal, fetch and both-tier Wasm integration checks:
+
+```sh
+USE=test MAKEOPTS='-j96' emerge -av '=net-libs/nodejs-9999::sparc64'
+```
+
+A failure stops the test phase; the ebuild does not suppress or retry the known
+futex failure. Preserve build.log and the fetched commit if it recurs. These
+checks do not replace the full upstream regression and release-validation gates.
+
+### npm and native addons
+
+Portage owns `/usr/bin/node`, npm/npx and `/usr/include/node`. npm's bundled
+JavaScript uses the upstream `/usr/lib/node_modules` layout. Update Node and
+bundled npm through Portage; do not replace them with `npm install -g npm`.
+
+`/etc/npm/npmrc` points native addon builds at the shipped `/usr` headers and
+puts separately installed global npm packages under `/usr/local`. Its env.d
+entry takes effect after `source /etc/profile`. Project installs still use
+local `node_modules`; user configuration can override these defaults.
+
+Most native npm addons do not publish SPARC binaries. They need compatible
+source, Python, Make and a C/C++ compiler. A passing Node-API addon does not
+validate unrelated third-party native code; packages with architecture
+assumptions may need their own port.
+
+Portage installs the port notes, maintenance procedure and standalone validation
+fixtures under `/usr/share/doc/nodejs-9999/`. To remove the package:
+
+```sh
+emerge --ask --depclean net-libs/nodejs
+```
+
+Project dependencies, npm caches and separately installed global packages are
+outside the Portage package.
+
+### Updating and validating
+
+The [upstream merge/build/test procedure](https://github.com/shalseth/node/blob/sparc64/doc/sparc64-maintenance.md)
+describes fresh build worktrees, source provenance, upstream v26.x merges,
+regression gates and hardware application validation. Updating the live package
+fetches and rebuilds the development branch:
+
+```sh
+MAKEOPTS='-j96' emerge -av --oneshot '=net-libs/nodejs-9999::sparc64'
+```
+
+For a reproducible historical build, select a known tested commit through
+Portage's git-r3 override, keeping the repository and branch unchanged:
+
+```sh
+EGIT_OVERRIDE_COMMIT_SHALSETH_NODE=<full-commit-sha> \
+  MAKEOPTS='-j96' emerge -av '=net-libs/nodejs-9999::sparc64'
+```
+
+`contrib/validate-nodejs-image.py` exercises a Portage-staged installation
+without merging it into the host. It checks Node/npm/npx, offline native addon
+compilation through the installed npm configuration and headers, local CLI
+installation, TypeScript workers/fetch and Temporal:
+
+```sh
+python3 contrib/validate-nodejs-image.py \
+  --image /path/to/portage/image --output /path/to/new-validation-output
+```
+
+Keep the README, ebuild requirements and installed notes synchronized when
+updating the package. The existing prebuilt Go toolchain solves Go's bootstrap
+requirement; Node has no corresponding dependency on an existing Node binary.
