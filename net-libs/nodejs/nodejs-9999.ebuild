@@ -49,7 +49,7 @@ src_configure() {
 	export CARGO_NET_OFFLINE=true
 	"${EPYTHON}" configure.py --dest-cpu=sparc64 --enable-d8 \
 		--prefix="${EPREFIX}/usr" --use-prefix-to-find-headers \
-		--v8-disable-maglev --v8-enable-verify-heap \
+		--v8-enable-verify-heap \
 		--shared-openssl --with-intl=system-icu --v8-enable-temporal-support \
 		-Dv8_enable_sparkplug=1 -Dv8_enable_turbofan=1 || die
 }
@@ -63,6 +63,9 @@ src_test() {
 	out/Release/cctest || die "Native C++ tests failed; preserve build.log"
 	local node="${S}/out/Release/node"
 	local fixtures="${S}/tools/sparc64/release-validation"
+	"${node}" --allow-natives-syntax --maglev --no-turbofan \
+		--no-concurrent-recompilation --expose-gc --verify-heap \
+		"${S}/tools/sparc64/test-maglev.js" || die
 	"${node}" "${fixtures}/typescript/main.ts" || die
 	"${node}" --expose-gc --verify-heap "${fixtures}/temporal.cjs" || die
 	"${node}" "${fixtures}/node-apis.cjs" || die
@@ -85,6 +88,8 @@ src_install() {
 	dodir "/usr/share/doc/${PF}"
 	mv "${ED}/usr/share/doc/node" "${ED}/usr/share/doc/${PF}/v8" || die
 	cp -a tools/sparc64/release-validation "${ED}/usr/share/doc/${PF}/validation" || die
+	cp tools/sparc64/test-maglev.js \
+		"${ED}/usr/share/doc/${PF}/validation/maglev.js" || die
 	docompress -x "/usr/share/doc/${PF}/validation"
 	dodoc LICENSE README.sparc64.md doc/sparc64-maintenance.md
 	newdoc "${FILESDIR}/nodejs-sparc64-notes.md" SPARC64-NOTES.md
@@ -99,7 +104,8 @@ src_install() {
 
 pkg_postinst() {
 	elog "This is a live SPARC64 development build. Keep its commit and build/test logs."
-	elog "Maglev is disabled; one intermittent native C++ futex EINVAL remains unresolved."
+	elog "Sparkplug, Maglev and TurboFan JITs are enabled."
+	elog "One intermittent native C++ futex EINVAL remains unresolved."
 	elog "Run 'source /etc/profile' before using npm in your current shell."
 	elog "Portage owns Node and npm; global npm packages use /usr/local."
 }

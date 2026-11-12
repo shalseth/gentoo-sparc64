@@ -4,10 +4,11 @@ This package builds the live `sparc64` branch of shalseth/node from Git using
 native C/C++ and Rust toolchains. An existing Node.js installation is not needed.
 Record the fetched commit and preserve Portage's build/test logs for reproducibility.
 
-Sparkplug and TurboFan provide native JavaScript compilation. Liftoff and the
-optimizing Wasm compiler support production Wasm, including GC, SIMD and JSPI.
-TypeScript stripping, Temporal, FFI and snapshots are enabled together. Maglev
-is disabled, and SIMD currently uses scalar SPARC instructions rather than VIS.
+Sparkplug, Maglev and TurboFan provide native JavaScript compilation. Liftoff
+and the optimizing Wasm compiler support production Wasm, including GC, SIMD
+and JSPI.
+TypeScript stripping, Temporal, FFI and snapshots are enabled together. SIMD
+currently uses scalar SPARC instructions rather than VIS.
 
 One intermittent native C++ failure remains unresolved:
 `PlatformTest.SkipNewTasksInFlushForegroundTasks` once aborted with Abseil

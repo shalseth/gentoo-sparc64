@@ -294,9 +294,9 @@ The build uses native C/C++ and Rust toolchains and vendored Cargo dependencies.
 The tracked upstream line is **Node 26 (`nodejs/node:v26.x`)**, not `main`.
 GitHub's default fork comparison against `main` does not measure release-line lag.
 
-The port has Sparkplug/TurboFan JavaScript JIT, baseline and optimizing Wasm
-compilers, npm/npx, TypeScript stripping, Temporal, FFI, workers and snapshots.
-Maglev is disabled; Wasm SIMD currently uses scalar SPARC instructions.
+The port has Sparkplug/Maglev/TurboFan JavaScript JIT, baseline and optimizing
+Wasm compilers, npm/npx, TypeScript stripping, Temporal, FFI, workers and snapshots.
+Wasm SIMD currently uses scalar SPARC instructions.
 
 **This is an experimental out-of-tree port.** An intermittent Abseil futex
 EINVAL in the native C++ suite remains unresolved. Follow-up ordinary and
@@ -335,6 +335,7 @@ node --version
 npm --version
 npx --version
 node -p 'process.arch'
+node --allow-natives-syntax -e 'console.log(%IsMaglevEnabled())'
 ```
 
 The live ebuild is deliberately unkeyworded and requires the explicit `**`
@@ -342,8 +343,8 @@ entry above. It records the fetched revision in Portage's build log. The initial
 port is based on v26.12.1; later upstream merges can change the reported version.
 The architecture should be `sparc64`.
 
-Optional `USE=test` runs the unchanged native C++ suite and bounded TypeScript,
-Temporal, fetch and both-tier Wasm integration checks:
+Optional `USE=test` runs the unchanged native C++ suite, a Maglev execution/GC
+probe, and bounded TypeScript, Temporal, fetch and both-tier Wasm checks:
 
 ```sh
 USE=test MAKEOPTS='-j96' emerge -av '=net-libs/nodejs-9999::sparc64'
