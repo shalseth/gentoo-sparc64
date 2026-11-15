@@ -11,6 +11,7 @@ other packages from `::gentoo` here.
 | `dev-lang/go` | Go, built from the [sparc64 port](https://github.com/shalseth/go/tree/sparc64) |
 | `sys-libs/libseccomp` | a snapshot of upstream libseccomp with SPARC support |
 | `net-libs/nodejs` | Node 26 and native V8 JIT, [built from Git source](#installing-nodejs) |
+| `app-containers/syft` | a newer syft than `::gentoo`; on sparc64 it skips SQLite rpmdbs |
 
 Also in this repository:
 
