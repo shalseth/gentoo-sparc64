@@ -40,7 +40,9 @@ def fix(path):
 def main(workdir):
     n = 0
     for root, _, files in os.walk(workdir):
-        if not root.endswith(os.path.join("containerd", "fifo")):
+        # go-mod/<module>@<version>/... as well as vendor/<module>/...
+        modpath = re.sub(r"@[^/]*", "", root)
+        if not modpath.endswith(os.path.join("containerd", "fifo")):
             continue
         p = os.path.join(root, "handle_linux.go")
         if os.path.exists(p) and fix(p):

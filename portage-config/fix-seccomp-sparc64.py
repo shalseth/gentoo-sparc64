@@ -162,8 +162,10 @@ TARGETS = [
 
 def main(workdir):
     for root, _, _ in os.walk(workdir):
+        # go-mod/<module>@<version>/... as well as vendor/<module>/...
+        modpath = re.sub(r"@[^/]*", "", root)
         for suffix, name, fixer in TARGETS:
-            if not root.endswith(suffix):
+            if not modpath.endswith(suffix):
                 continue
             p = os.path.join(root, name)
             if not os.path.exists(p):

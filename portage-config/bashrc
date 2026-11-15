@@ -36,6 +36,25 @@
 #
 # Delete this file or that directory to disable.
 
+# Print, NUL-separated, every directory under WORKDIR holding the module
+# subdirectory $1. A vendored copy sits at vendor/<module>/<subdir>, a
+# go-module deps tarball unpacks to go-mod/<module>@<version>/<subdir>, and
+# the module boundary cannot be told from the path, so try every split.
+# go-mod/cache/download holds only zips.
+_sparc64_mod_dirs() {
+	local dir=$1 i mod sub
+	local -a c pats=(-path "*/${dir}")
+
+	IFS=/ read -ra c <<< "${dir}"
+	for (( i = 1; i <= ${#c[@]}; i++ )); do
+		mod=$(IFS=/; echo "${c[*]:0:i}")
+		sub=$(IFS=/; echo "${c[*]:i}")
+		pats+=(-o -path "*/${mod}@*${sub:+/${sub}}")
+	done
+	find "${WORKDIR}" -type d \( "${pats[@]}" \) \
+		-not -path '*/cache/download/*' -print0 2>/dev/null
+}
+
 _sparc64_arch_inject() {
 	[[ ${ARCH} == sparc ]] || return 0
 	[[ ${INHERITED} == *go-module* || ${INHERITED} == *golang-* ]] || return 0
@@ -82,7 +101,7 @@ _sparc64_arch_inject() {
 				ewarn "sparc64: ${d#"${WORKDIR}"/}/${base} is not a version this"
 				ewarn "sparc64: overlay knows how to patch; leaving it alone."
 			fi
-		done < <(find "${WORKDIR}" -type d -path "*/${dir}" -print0 2>/dev/null)
+		done < <(_sparc64_mod_dirs "${dir}")
 	done < <(find "${src}" -type f -print0 2>/dev/null)
 
 	# Correct the sparc64 ABI bugs that vendored modules carry, at whatever
@@ -94,7 +113,7 @@ _sparc64_arch_inject() {
 			while IFS= read -r line; do
 				einfo "sparc64: ${line}"
 			done < <(python3 "${src}/fix-xsys-stat.py" "${d}" 2>/dev/null)
-		done < <(find "${WORKDIR}" -type d -path '*/golang.org/x/sys/unix' -print0 2>/dev/null)
+		done < <(_sparc64_mod_dirs golang.org/x/sys/unix)
 	fi
 
 	local fixer
@@ -109,14 +128,16 @@ _sparc64_arch_inject() {
 	# moby/sys/signal needs an edit as well as an addition: signal_linux.go
 	# claims every non-MIPS Linux architecture, and must yield sparc64 to the
 	# file added above. Idempotent - the guard is the tag itself.
-	while IFS= read -r -d '' f; do
+	while IFS= read -r -d '' d; do
+		f=${d}/signal_linux.go
+		[[ -e ${f} ]] || continue
 		grep -qs 'sparc64' "${f}" && continue
-		[[ -e ${f%/*}/signal_linux_sparc64.go ]] || continue
+		[[ -e ${d}/signal_linux_sparc64.go ]] || continue
 		sed -i -e 's|^//go:build !mips && !mipsle && !mips64 && !mips64le$|//go:build !mips \&\& !mipsle \&\& !mips64 \&\& !mips64le \&\& !sparc64|' \
 		       -e 's|^// +build !mips,!mipsle,!mips64,!mips64le$|// +build !mips,!mipsle,!mips64,!mips64le,!sparc64|' \
 			"${f}" 2>/dev/null &&
 			einfo "sparc64: excluded sparc64 from ${f#"${WORKDIR}"/}"
-	done < <(find "${WORKDIR}" -type f -path '*/moby/sys/signal/signal_linux.go' -print0 2>/dev/null)
+	done < <(_sparc64_mod_dirs github.com/moby/sys/signal)
 }
 
 post_src_unpack() { _sparc64_arch_inject; }

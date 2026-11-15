@@ -39,7 +39,9 @@ def fix(path):
 def main(workdir):
     n = 0
     for root, _, files in os.walk(workdir):
-        if not root.endswith(os.path.join("golang.org", "x", "sys", "unix")):
+        # go-mod/<module>@<version>/... as well as vendor/<module>/...
+        modpath = re.sub(r"@[^/]*", "", root)
+        if not modpath.endswith(os.path.join("golang.org", "x", "sys", "unix")):
             continue
         p = os.path.join(root, "zerrors_linux_sparc64.go")
         if os.path.exists(p) and fix(p):
