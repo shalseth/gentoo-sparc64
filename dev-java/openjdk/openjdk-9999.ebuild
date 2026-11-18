@@ -138,10 +138,10 @@ src_configure() {
 	version=${version%-ga}
 
 	# The port is tested with the JDK's own compiler flags, so user CFLAGS
-	# and LDFLAGS are not passed on. It is also only tested with precompiled
-	# headers, and some sparc files miss includes that the headers provide.
+	# and LDFLAGS are not passed on.
 	local myconf=(
 		--disable-ccache
+		--disable-precompiled-headers
 		--disable-warnings-as-errors
 		--enable-full-docs=no
 		--enable-unlimited-crypto
