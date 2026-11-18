@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE pkgmetadata SYSTEM "https://www.gentoo.org/dtd/metadata.dtd">
+<pkgmetadata>
+	<maintainer type="person">
+		<email>stian@itx.no</email>
+		<name>Stian Halseth</name>
+	</maintainer>
+	<slots>
+		<slot name="25">Java™ version 25</slot>
+	</slots>
+	<use>
+		<flag name="headless-awt">Don't install the X backend for AWT, needed by some GUIs</flag>
+		<flag name="source">Install JVM sources</flag>
+	</use>
+	<upstream>
+		<remote-id type="github">shalseth/jdk-sunos-patches</remote-id>
+		<remote-id type="github">openjdk/jdk25u</remote-id>
+	</upstream>
+</pkgmetadata>

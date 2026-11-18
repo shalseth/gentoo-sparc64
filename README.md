@@ -12,6 +12,7 @@ other packages from `::gentoo` here.
 | `sys-libs/libseccomp` | a snapshot of upstream libseccomp with SPARC support |
 | `net-libs/nodejs` | Node 26 and native V8 JIT, [built from Git source](#installing-nodejs) |
 | `app-containers/syft` | a newer syft than `::gentoo`; on sparc64 it skips SQLite rpmdbs |
+| `dev-java/openjdk` | OpenJDK 25 with the SPARC JIT, [built from the patch lists](#java) |
 
 Also in this repository:
 
@@ -413,3 +414,53 @@ python3 contrib/validate-nodejs-image.py \
 Keep the README, ebuild requirements and installed notes synchronized when
 updating the package. The existing prebuilt Go toolchain solves Go's bootstrap
 requirement; Node has no corresponding dependency on an existing Node binary.
+
+## Java
+
+`dev-java/openjdk-9999` builds OpenJDK 25 with the C1 and C2 JIT
+compilers. The source is the newest `jdk25u` tag that has Linux lists on
+the [`linux-sparc` branch of jdk-sunos-patches](https://github.com/shalseth/jdk-sunos-patches/tree/linux-sparc).
+The ebuild fetches that branch and the matching `openjdk/jdk25u` tag with
+`git-r3`. It then applies the lists in the order jdk-sunos-builder uses:
+the version's `.pls`, then `.pls.sparc`, then `.pls.linux`.
+`README-linux-sparc.txt` in the tag directory says what the port supports.
+
+It installs like `dev-java/openjdk:25` from `::gentoo`, so `virtual/jdk:25`
+and `eselect java-vm` work with it. Java packages from `::gentoo` still
+need their own keyword entries.
+
+### Installing Java
+
+The Gentoo Java tools have no sparc keyword. They are Python and shell, so
+accept them as they are. `java-config-9999` is the live version, so
+exclude it:
+
+```sh
+cat >> /etc/portage/package.accept_keywords/sparc64-openjdk <<'END'
+=dev-java/openjdk-9999::sparc64 **
+<dev-java/java-config-9999 **
+app-eselect/eselect-java **
+sys-apps/baselayout-java **
+END
+MAKEOPTS='-j96' emerge -av '=dev-java/openjdk-9999::sparc64'
+java -version
+```
+
+Building the JDK needs a JDK 24 or 25. When no `dev-java/openjdk:25` is
+installed, the ebuild uses the bootstrap JDK attached to the
+[`bootstrap-25.0.5.1` release](https://github.com/shalseth/jdk-sunos-patches/releases/tag/bootstrap-25.0.5.1).
+Later updates build with the installed one. `::gentoo`'s
+`system-bootstrap` flag cannot do this here, because the base profile
+forces it on for `openjdk:25`.
+
+`java -version` shows the patch list commit after `sparc64-`. To pin a
+commit, or to build an older tag:
+
+```sh
+EGIT_OVERRIDE_COMMIT_SHALSETH_JDK_SUNOS_PATCHES=<full-commit-sha> \
+JDK_SPARC_ALIAS=jdk25u-jdk-25.0.5.0.2-ga \
+  MAKEOPTS='-j96' emerge -av '=dev-java/openjdk-9999::sparc64'
+```
+
+A release build takes about 8 minutes on a T7 with `-j96`. User `CFLAGS`
+are not passed on: the port is tested with the JDK's own compiler flags.
